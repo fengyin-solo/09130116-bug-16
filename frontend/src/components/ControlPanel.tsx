@@ -1,20 +1,29 @@
 import React, { useState } from 'react';
-import { Card, Collapse, Switch, Slider, Select, Space, Typography, Tag } from 'antd';
-import { EyeOutlined, EyeInvisibleOutlined, BuildOutlined, SettingOutlined, AreaChartOutlined } from '@ant-design/icons';
+import { Card, Collapse, Switch, Slider, Select, Space, Typography, Tag, Button } from 'antd';
+import {
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  BuildOutlined,
+  SettingOutlined,
+  AreaChartOutlined,
+} from '@ant-design/icons';
 import { useSelector, useDispatch } from 'react-redux';
 import {
   setSliceVisible,
   setSliceIndex,
   setSliceOpacity,
   setSliceColormap,
+  setSliceValueRange,
   setVolumeRenderingEnabled,
   setVolumeRenderingOpacity,
+  setVolumeRenderingSampleRate,
   setBackground,
   setShowAxes,
   setShowGrid,
 } from '../store/slices/viewerSlice';
 import { RootState, AppDispatch } from '../store';
 import { SeismicData } from '../types';
+import { getSliceCount, SliceType } from '../utils/viewerSettings';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -29,6 +38,23 @@ const colormapOptions = [
   { value: 'rainbow', label: '彩虹' },
 ];
 
+const getDataBounds = (seismicData: SeismicData) => {
+  const hasMin = Number.isFinite(seismicData.min_value);
+  const hasMax = Number.isFinite(seismicData.max_value);
+  if (hasMin && hasMax) {
+    const min = Number(seismicData.min_value);
+    const max = Number(seismicData.max_value);
+    return min <= max ? { min, max } : { min: 0, max: 1 };
+  }
+  return { min: 0, max: 1 };
+};
+
+const formatNumber = (value: number) => {
+  if (Math.abs(value) >= 100) return value.toFixed(0);
+  if (Math.abs(value) >= 10) return value.toFixed(1);
+  return value.toFixed(2);
+};
+
 const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
   const dispatch = useDispatch<AppDispatch>();
   const slices = useSelector((state: RootState) => state.viewer.slices);
@@ -38,15 +64,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
   const showGrid = useSelector((state: RootState) => state.viewer.showGrid);
 
   const [activeKeys, setActiveKeys] = useState<string[]>(['slices', 'volume', 'display']);
+  const dataBounds = getDataBounds(seismicData);
+  const rangeSpan = dataBounds.max - dataBounds.min || 1;
+  const rangeStep = Math.max(rangeSpan / 1000, Math.abs(rangeSpan) * 1e-6);
 
-  const renderSliceControl = (sliceType: 'inline' | 'crossline' | 'depth') => {
+  const renderSliceControl = (sliceType: SliceType) => {
     const config = slices[sliceType];
-    
-    const maxMap = {
-      inline: seismicData.num_inlines || 100,
-      crossline: seismicData.num_crosslines || 100,
-      depth: seismicData.num_depths || 100,
-    };
+    const maxIndex = getSliceCount(seismicData, sliceType) - 1;
 
     const labelsMap = {
       inline: 'Inline 切片',
@@ -54,14 +78,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
       depth: '深度切片',
     };
 
+    const rangeValue: [number, number] = [
+      config.minValue ?? dataBounds.min,
+      config.maxValue ?? dataBounds.max,
+    ];
+
     return (
       <Card
+        key={sliceType}
         size="small"
         style={{ marginBottom: 8 }}
         extra={
           <Switch
             checked={config.visible}
-            onChange={(checked) => dispatch(setSliceVisible({ sliceType, visible: checked }))}
+            onChange={(visible) => dispatch(setSliceVisible({ sliceType, visible }))}
             checkedChildren={<EyeOutlined />}
             unCheckedChildren={<EyeInvisibleOutlined />}
           />
@@ -78,9 +108,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
           </div>
           <Slider
             min={0}
-            max={maxMap[sliceType] - 1}
+            max={maxIndex}
             value={config.index}
-            onChange={(value) => dispatch(setSliceIndex({ sliceType, index: value as number }))}
+            onChange={(index) =>
+              dispatch(setSliceIndex({ sliceType, index: index as number, seismicData }))
+            }
             disabled={!config.visible}
           />
         </div>
@@ -95,24 +127,66 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
             max={1}
             step={0.01}
             value={config.opacity}
-            onChange={(value) => dispatch(setSliceOpacity({ sliceType, opacity: value as number }))}
+            onChange={(opacity) => dispatch(setSliceOpacity({ sliceType, opacity: opacity as number }))}
             disabled={!config.visible}
           />
         </div>
 
-        <div>
+        <div style={{ marginBottom: 12 }}>
           <Text type="secondary">色标</Text>
           <Select
             value={config.colormap}
             size="small"
             style={{ width: '100%' }}
-            onChange={(value) => dispatch(setSliceColormap({ sliceType, colormap: value }))}
+            onChange={(colormap) => dispatch(setSliceColormap({ sliceType, colormap }))}
             disabled={!config.visible}
           >
-            {colormapOptions.map(opt => (
-              <Select.Option key={opt.value} value={opt.value}>{opt.label}</Select.Option>
+            {colormapOptions.map((opt) => (
+              <Select.Option key={opt.value} value={opt.value}>
+                {opt.label}
+              </Select.Option>
             ))}
           </Select>
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Text type="secondary">取值范围</Text>
+            <Button
+              type="link"
+              size="small"
+              disabled={!config.visible || (config.minValue === null && config.maxValue === null)}
+              onClick={() =>
+                dispatch(
+                  setSliceValueRange({
+                    sliceType,
+                    minValue: null,
+                    maxValue: null,
+                    seismicData,
+                  })
+                )
+              }
+            >
+              使用数据范围
+            </Button>
+          </div>
+          <Slider
+            range
+            min={dataBounds.min}
+            max={dataBounds.max}
+            step={rangeStep}
+            value={rangeValue}
+            onChange={(value) => {
+              const [minValue, maxValue] = value as [number, number];
+              dispatch(setSliceValueRange({ sliceType, minValue, maxValue, seismicData }));
+            }}
+            disabled={!config.visible}
+            tooltip={{ formatter: (value) => (value === undefined ? '' : formatNumber(value)) }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Tag>{formatNumber(rangeValue[0])}</Tag>
+            <Tag>{formatNumber(rangeValue[1])}</Tag>
+          </div>
         </div>
       </Card>
     );
@@ -170,7 +244,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
 
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text type="secondary">透明度</Text>
+                  <Text type="secondary">不透明度</Text>
                   <Tag>{(volumeRendering.opacity * 100).toFixed(0)}%</Tag>
                 </div>
                 <Slider
@@ -178,7 +252,22 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
                   max={1}
                   step={0.01}
                   value={volumeRendering.opacity}
-                  onChange={(value) => dispatch(setVolumeRenderingOpacity(value as number))}
+                  onChange={(opacity) => dispatch(setVolumeRenderingOpacity(opacity as number))}
+                  disabled={!volumeRendering.enabled}
+                />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text type="secondary">采样质量</Text>
+                  <Tag>{Math.round(volumeRendering.sampleRate * 100)}%</Tag>
+                </div>
+                <Slider
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={volumeRendering.sampleRate}
+                  onChange={(sampleRate) => dispatch(setVolumeRenderingSampleRate(sampleRate as number))}
                   disabled={!volumeRendering.enabled}
                 />
               </div>

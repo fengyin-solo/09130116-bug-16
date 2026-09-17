@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, computed_field
 
 
 class Token(BaseModel):
@@ -126,12 +126,72 @@ class SeismicData(SeismicDataBase):
     id: int
     project_id: int
     file_size: Optional[float] = None
+    inline_start: Optional[int] = None
+    inline_end: Optional[int] = None
+    inline_step: Optional[int] = None
+    crossline_start: Optional[int] = None
+    crossline_end: Optional[int] = None
+    crossline_step: Optional[int] = None
+    depth_start: Optional[float] = None
+    depth_end: Optional[float] = None
+    depth_step: Optional[float] = None
+    num_inlines: Optional[int] = None
+    num_crosslines: Optional[int] = None
+    num_depths: Optional[int] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    mean_value: Optional[float] = None
+    std_value: Optional[float] = None
     status: str
     upload_progress: float
     created_by: int
     created_at: datetime
-    dimensions: Optional[SeismicDataDimensions] = None
-    statistics: Optional[SeismicDataStats] = None
+
+    @computed_field
+    @property
+    def dimensions(self) -> Optional[SeismicDataDimensions]:
+        required_dimensions = [
+            self.inline_start,
+            self.inline_end,
+            self.inline_step,
+            self.crossline_start,
+            self.crossline_end,
+            self.crossline_step,
+            self.depth_start,
+            self.depth_end,
+            self.depth_step,
+            self.num_inlines,
+            self.num_crosslines,
+            self.num_depths,
+        ]
+        if any(value is None for value in required_dimensions):
+            return None
+        return SeismicDataDimensions(
+            inline_start=int(self.inline_start),
+            inline_end=int(self.inline_end),
+            inline_step=int(self.inline_step),
+            crossline_start=int(self.crossline_start),
+            crossline_end=int(self.crossline_end),
+            crossline_step=int(self.crossline_step),
+            depth_start=float(self.depth_start),
+            depth_end=float(self.depth_end),
+            depth_step=float(self.depth_step),
+            num_inlines=int(self.num_inlines),
+            num_crosslines=int(self.num_crosslines),
+            num_depths=int(self.num_depths),
+        )
+
+    @computed_field
+    @property
+    def statistics(self) -> Optional[SeismicDataStats]:
+        if self.min_value is None or self.max_value is None or self.mean_value is None or self.std_value is None:
+            return None
+        return SeismicDataStats(
+            min_value=float(self.min_value),
+            max_value=float(self.max_value),
+            mean_value=float(self.mean_value),
+            std_value=float(self.std_value),
+        )
 
     class Config:
         from_attributes = True

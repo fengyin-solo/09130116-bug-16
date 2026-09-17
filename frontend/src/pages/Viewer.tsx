@@ -10,6 +10,7 @@ import SeismicCanvas from '../components/SeismicCanvas';
 import ControlPanel from '../components/ControlPanel';
 import Toolbar from '../components/Toolbar';
 import StatusBar from '../components/StatusBar';
+import ViewerSettingsSync from '../components/ViewerSettingsSync';
 
 const { Title } = Typography;
 
@@ -78,6 +79,8 @@ const Viewer: React.FC = () => {
 
   return (
     <div ref={containerRef} className="seismic-canvas-container">
+      <ViewerSettingsSync seismicData={currentData} />
+
       <SeismicCanvas seismicData={currentData} containerRef={containerRef} />
 
       <Toolbar />

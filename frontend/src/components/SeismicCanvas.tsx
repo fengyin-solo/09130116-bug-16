@@ -10,6 +10,7 @@ import { seismicAPI } from '../services/api';
 import VolumeRenderer from './VolumeRenderer';
 import SliceRenderer from './SliceRenderer';
 import MeasurementOverlay from './MeasurementOverlay';
+import { getSliceCount } from '../utils/viewerSettings';
 
 interface SeismicCanvasProps {
   seismicData: SeismicData;
@@ -21,9 +22,9 @@ const SceneSetup: React.FC<{ seismicData: SeismicData }> = ({ seismicData }) => 
   const showAxes = useSelector((state: RootState) => state.viewer.showAxes);
   const showGrid = useSelector((state: RootState) => state.viewer.showGrid);
 
-  const width = (seismicData.num_crosslines || 100) * 10;
-  const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
+  const width = getSliceCount(seismicData, 'crossline') * 10;
+  const height = getSliceCount(seismicData, 'depth') * 10;
+  const depth = getSliceCount(seismicData, 'inline') * 10;
 
   const bgColor = background === 'dark' ? '#0a0a0a' : '#f5f5f5';
 
@@ -53,9 +54,9 @@ const Raycaster: React.FC<{
   const tool = useSelector((state: RootState) => state.viewer.tool);
   const planeRef = useRef<THREE.Mesh>(null);
 
-  const width = (seismicData.num_crosslines || 100) * 10;
-  const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
+  const width = getSliceCount(seismicData, 'crossline') * 10;
+  const height = getSliceCount(seismicData, 'depth') * 10;
+  const depth = getSliceCount(seismicData, 'inline') * 10;
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -117,9 +118,9 @@ const SeismicScene: React.FC<{ seismicData: SeismicData }> = ({ seismicData }) =
     [dispatch, measurementPoints, measurementType]
   );
 
-  const width = (seismicData.num_crosslines || 100) * 10;
-  const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
+  const width = getSliceCount(seismicData, 'crossline') * 10;
+  const height = getSliceCount(seismicData, 'depth') * 10;
+  const depth = getSliceCount(seismicData, 'inline') * 10;
 
   return (
     <>
@@ -147,9 +148,9 @@ const SeismicScene: React.FC<{ seismicData: SeismicData }> = ({ seismicData }) =
 };
 
 const SeismicCanvas: React.FC<SeismicCanvasProps> = ({ seismicData, containerRef }) => {
-  const width = (seismicData.num_crosslines || 100) * 10;
-  const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
+  const width = getSliceCount(seismicData, 'crossline') * 10;
+  const height = getSliceCount(seismicData, 'depth') * 10;
+  const depth = getSliceCount(seismicData, 'inline') * 10;
   const maxDim = Math.max(width, height, depth);
 
   return (

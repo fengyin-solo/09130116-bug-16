@@ -1,7 +1,7 @@
-import React, { useRef, useMemo } from 'react';
-import { useFrame } from '@react-three/fiber';
+import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { SeismicData, VolumeRenderingConfig } from '../types';
+import { getSliceCount } from '../utils/viewerSettings';
 
 interface VolumeRendererProps {
   seismicData: SeismicData;
@@ -9,12 +9,9 @@ interface VolumeRendererProps {
 }
 
 const VolumeRenderer: React.FC<VolumeRendererProps> = ({ seismicData, config }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
-
-  const width = (seismicData.num_crosslines || 100) * 10;
-  const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
+  const width = getSliceCount(seismicData, 'crossline') * 10;
+  const height = getSliceCount(seismicData, 'depth') * 10;
+  const depth = getSliceCount(seismicData, 'inline') * 10;
 
   const volumeData = useMemo(() => {
     const size = 64;
@@ -97,14 +94,14 @@ const VolumeRenderer: React.FC<VolumeRendererProps> = ({ seismicData, config }) 
         tmax = min(tmax, t1);
       }
       
-      if (tmax < tmin || tmax < 0.0) {
+      if (tmax < tmin || tmax < 0.0 || opacity <= 0.0) {
         return vec4(0.0);
       }
       
       tmin = max(tmin, 0.0);
       
       vec4 color = vec4(0.0);
-      float stepSize = sampleRate * min(min(volumeSize.x, volumeSize.y), volumeSize.z) / 100.0;
+      float stepSize = min(min(volumeSize.x, volumeSize.y), volumeSize.z) / (50.0 + sampleRate * 150.0);
       vec3 pos = rayOrigin + rayDir * tmin;
       
       for (float t = tmin; t < tmax; t += stepSize) {
@@ -167,18 +164,10 @@ const VolumeRenderer: React.FC<VolumeRendererProps> = ({ seismicData, config }) 
     [volumeTexture, config.opacity, config.sampleRate, width, height, depth]
   );
 
-  useFrame(() => {
-    if (materialRef.current) {
-      materialRef.current.uniforms.opacity.value = config.opacity;
-      materialRef.current.uniforms.sampleRate.value = config.sampleRate;
-    }
-  });
-
   return (
-    <mesh ref={meshRef} position={[width / 2, height / 2, depth / 2]}>
+    <mesh position={[width / 2, height / 2, depth / 2]}>
       <boxGeometry args={[width, height, depth]} />
       <shaderMaterial
-        ref={materialRef}
         vertexShader={vertexShader}
         fragmentShader={fragmentShader}
         uniforms={uniforms}

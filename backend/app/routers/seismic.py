@@ -2,6 +2,7 @@ import os
 import uuid
 import tempfile
 from typing import List, Optional
+from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -156,14 +157,56 @@ async def get_slice(
 
     check_project_permission(current_user, seismic.project_id, "viewer", db)
 
+    valid_slice_types = {"inline", "crossline", "depth"}
+    valid_colormaps = {"seismic", "gray", "rainbow"}
+    if slice_type not in valid_slice_types:
+        raise HTTPException(status_code=400, detail="Invalid slice type")
+    if format not in {"png", "json"}:
+        raise HTTPException(status_code=400, detail="Invalid slice format")
+    if colormap not in valid_colormaps:
+        colormap = "seismic"
+
+    slice_counts = {
+        "inline": seismic.num_inlines or 0,
+        "crossline": seismic.num_crosslines or 0,
+        "depth": seismic.num_depths or 0,
+    }
+    slice_count = slice_counts[slice_type]
+    if slice_count <= 0:
+        raise HTTPException(status_code=400, detail=f"{slice_type} dimension is unavailable")
+    if slice_index < 0 or slice_index >= slice_count:
+        raise HTTPException(status_code=404, detail="Slice index is out of range")
+
+    data_min = seismic.min_value
+    data_max = seismic.max_value
+    if data_min is None or data_max is None:
+        data_min = None
+        data_max = None
+    elif data_min > data_max:
+        data_min, data_max = data_max, data_min
+
+    if min_value is not None and data_min is not None:
+        min_value = min(max(min_value, data_min), data_max)
+    if max_value is not None and data_max is not None:
+        max_value = min(max(max_value, data_min), data_max)
+    if min_value is not None and max_value is not None and max_value <= min_value:
+        min_value = data_min
+        max_value = data_max
+
     cache_key = f"slice:{seismic_id}:{slice_type}:{slice_index}:{colormap}:{min_value}:{max_value}:{format}"
-    cached = cache_service.get(cache_key)
-    if cached:
-        return StreamingResponse(cached, media_type="image/png")
+    if format == "png":
+        cached = cache_service.get(cache_key)
+        if cached:
+            if isinstance(cached, bytes):
+                cached = BytesIO(cached)
+            else:
+                cached.seek(0)
+            return StreamingResponse(cached, media_type="image/png")
 
     if not seismic.file_path:
         raise HTTPException(status_code=400, detail="No file associated with this seismic data")
 
+    file_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".sgy") as tmp:
             storage_service.download_file(seismic.file_path, tmp.name)
@@ -200,12 +243,18 @@ async def get_slice(
         cache_service.set(cache_key, image_buffer.getvalue(), expire_seconds=86400)
         image_buffer.seek(0)
 
-        os.unlink(file_path)
-
         return StreamingResponse(image_buffer, media_type="image/png")
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if file_path:
+            try:
+                os.unlink(file_path)
+            except OSError:
+                pass
 
 
 @router.post("/{seismic_id}/subvolume")

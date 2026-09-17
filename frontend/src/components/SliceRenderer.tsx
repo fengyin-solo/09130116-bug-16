@@ -1,171 +1,193 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { SeismicData } from '../types';
-import { RootState, AppDispatch } from '../store';
+import { RootState } from '../store';
 import { seismicAPI } from '../services/api';
+import { getSliceCount, SliceType } from '../utils/viewerSettings';
 
 interface SliceRendererProps {
   seismicData: SeismicData;
 }
 
-interface SliceTextureData {
-  texture: THREE.Texture;
-  timestamp: number;
+const createPlaceholderTexture = (): THREE.Texture => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  const gradient = ctx.createLinearGradient(0, 0, 256, 256);
+  gradient.addColorStop(0, '#1a1a2e');
+  gradient.addColorStop(0.5, '#16213e');
+  gradient.addColorStop(1, '#0f3460');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 256, 256);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 256; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 256);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(256, i);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+};
+
+interface SliceMeshProps {
+  seismicData: SeismicData;
+  sliceType: SliceType;
 }
 
-const SliceRenderer: React.FC<SliceRendererProps> = ({ seismicData }) => {
-  const dispatch = useDispatch<AppDispatch>();
-  const slices = useSelector((state: RootState) => state.viewer.slices);
+const SliceMesh: React.FC<SliceMeshProps> = ({ seismicData, sliceType }) => {
+  const config = useSelector((state: RootState) => state.viewer.slices[sliceType]);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const textureRef = useRef<THREE.Texture | null>(null);
+  const placeholderTexture = useMemo(() => createPlaceholderTexture(), []);
 
-  const [sliceTextures, setSliceTextures] = useState<Record<string, SliceTextureData>>({});
-  const [loadingSlices, setLoadingSlices] = useState<Record<string, boolean>>({});
+  const width = getSliceCount(seismicData, 'crossline') * 10;
+  const height = getSliceCount(seismicData, 'depth') * 10;
+  const depth = getSliceCount(seismicData, 'inline') * 10;
 
-  const width = (seismicData.num_crosslines || 100) * 10;
-  const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
-
-  const loadSliceTexture = async (
-    sliceType: string, sliceIndex: number, colormap: string, minValue: number | null, maxValue: number | null) => {
-    const cacheKey = `${sliceType}-${sliceIndex}-${colormap}-${minValue}-${maxValue}`;
-    const cached = sliceTextures[cacheKey];
-    
-    if (cached && Date.now() - cached.timestamp < 300000) {
-      return cached.texture;
-    }
-
-    if (loadingSlices[cacheKey]) {
-      return null;
-    }
-
-    setLoadingSlices(prev => ({ ...prev, [cacheKey]: true }));
-
-    try {
-      const response = await seismicAPI.getSliceImage(seismicData.id, sliceType, sliceIndex, {
-        colormap, min_value: minValue, max_value: maxValue
-      });
-      
-      const imageUrl = URL.createObjectURL(response.data);
-      const texture = new THREE.TextureLoader().load(imageUrl);
-      texture.needsUpdate = true;
-      
-      setSliceTextures(prev => ({
-        ...prev,
-        [cacheKey]: { texture, timestamp: Date.now() }
-      }));
-      
-      return texture;
-    } catch (error) {
-      console.error(`Failed to load slice:`, error);
-      return null;
-    } finally {
-      setLoadingSlices(prev => ({ ...prev, [cacheKey]: false }));
-    }
+  const updateTexture = (nextTexture: THREE.Texture | null) => {
+    textureRef.current = nextTexture;
+    setTexture(nextTexture);
   };
 
-  const createPlaceholderTexture = (color: string): THREE.Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d')!;
-    
-    const gradient = ctx.createLinearGradient(0, 0, 256, 256);
-    gradient.addColorStop(0, '#1a1a2e');
-    gradient.addColorStop(0.5, '#16213e');
-    gradient.addColorStop(1, '#0f3460');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 256, 256);
-    
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 256; i += 32) {
-      ctx.beginPath();
-      ctx.moveTo(i, 0);
-      ctx.lineTo(i, 256);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, i);
-      ctx.lineTo(256, i);
-      ctx.stroke();
+  useEffect(() => {
+    if (!config.visible) {
+      updateTexture(null);
+      return;
     }
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  };
 
-  const placeholderTexture = useMemo(() => createPlaceholderTexture('placeholder'), []);
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    let loadedTexture: THREE.Texture | null = null;
 
-  const renderInlineSlice = () => {
-    const config = slices.inline;
-    if (!config.visible) return null;
+    const loadTexture = async () => {
+      try {
+        const response = await seismicAPI.getSliceImage(
+          seismicData.id,
+          sliceType,
+          config.index,
+          {
+            colormap: config.colormap,
+            min_value: config.minValue,
+            max_value: config.maxValue,
+          }
+        );
 
-    const sliceWidth = depth;
-    const sliceHeight = height;
-    const x = config.index * 10;
-    
+        if (cancelled) return;
+
+        objectUrl = URL.createObjectURL(response.data);
+        loadedTexture = await new Promise<THREE.Texture>((resolve, reject) => {
+          new THREE.TextureLoader().load(
+            objectUrl!,
+            (nextTexture) => {
+              nextTexture.colorSpace = THREE.SRGBColorSpace;
+              nextTexture.needsUpdate = true;
+              resolve(nextTexture);
+            },
+            undefined,
+            reject
+          );
+        });
+
+        if (cancelled) return;
+
+        updateTexture(loadedTexture);
+        loadedTexture = null;
+      } catch (error) {
+        if (!cancelled) {
+          console.error(`Failed to load ${sliceType} slice:`, error);
+          updateTexture(null);
+        }
+      } finally {
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+      }
+    };
+
+    loadTexture();
+
+    return () => {
+      cancelled = true;
+      loadedTexture?.dispose();
+      const currentTexture = textureRef.current;
+      currentTexture?.dispose();
+      textureRef.current = null;
+      setTexture(null);
+    };
+  }, [
+    config.visible,
+    config.index,
+    config.colormap,
+    config.minValue,
+    config.maxValue,
+    seismicData.id,
+    sliceType,
+  ]);
+
+  useEffect(() => () => placeholderTexture.dispose(), [placeholderTexture]);
+
+  if (!config.visible) return null;
+
+  const commonMaterial = (
+    <meshBasicMaterial
+      map={texture ?? placeholderTexture}
+      transparent
+      opacity={config.opacity}
+      side={THREE.DoubleSide}
+    />
+  );
+
+  if (sliceType === 'inline') {
     return (
-      <mesh position={[x, sliceHeight / 2, sliceWidth / 2]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[sliceWidth, sliceHeight]} />
-        <meshBasicMaterial
-          map={placeholderTexture}
-          transparent
-          opacity={config.opacity}
-          side={THREE.DoubleSide}
-        />
+      <mesh
+        position={[config.index * 10, height / 2, depth / 2]}
+        rotation={[0, Math.PI / 2, 0]}
+      >
+        <planeGeometry args={[depth, height]} />
+        {commonMaterial}
       </mesh>
     );
-  };
+  }
 
-  const renderCrosslineSlice = () => {
-    const config = slices.crossline;
-    if (!config.visible) return null;
-
-    const sliceWidth = width;
-    const sliceHeight = height;
-    const z = config.index * 10;
-    
+  if (sliceType === 'crossline') {
     return (
-      <mesh position={[sliceWidth / 2, sliceHeight / 2, z]}>
-        <planeGeometry args={[sliceWidth, sliceHeight]} />
-        <meshBasicMaterial
-          map={placeholderTexture}
-          transparent
-          opacity={config.opacity}
-          side={THREE.DoubleSide}
-        />
+      <mesh position={[width / 2, height / 2, config.index * 10]}>
+        <planeGeometry args={[width, height]} />
+        {commonMaterial}
       </mesh>
     );
-  };
-
-  const renderDepthSlice = () => {
-    const config = slices.depth;
-    if (!config.visible) return null;
-
-    const sliceWidth = width;
-    const sliceDepth = depth;
-    const y = config.index * 10;
-    
-    return (
-      <mesh position={[sliceWidth / 2, y, sliceDepth / 2]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[sliceWidth, sliceDepth]} />
-        <meshBasicMaterial
-          map={placeholderTexture}
-          transparent
-          opacity={config.opacity}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-    );
-  };
+  }
 
   return (
-    <group>
-      {renderInlineSlice()}
-      {renderCrosslineSlice()}
-      {renderDepthSlice()}
-    </group>
+    <mesh
+      position={[width / 2, config.index * 10, depth / 2]}
+      rotation={[-Math.PI / 2, 0, 0]}
+    >
+      <planeGeometry args={[width, depth]} />
+      {commonMaterial}
+    </mesh>
   );
 };
+
+const SliceRenderer: React.FC<SliceRendererProps> = ({ seismicData }) => (
+  <group>
+    <SliceMesh seismicData={seismicData} sliceType="inline" />
+    <SliceMesh seismicData={seismicData} sliceType="crossline" />
+    <SliceMesh seismicData={seismicData} sliceType="depth" />
+  </group>
+);
 
 export default SliceRenderer;

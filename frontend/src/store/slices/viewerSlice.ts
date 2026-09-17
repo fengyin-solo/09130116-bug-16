@@ -1,118 +1,122 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { SliceConfig, VolumeRenderingConfig, Point3D, MeasurementResult } from '../../types';
+import type {
+  SliceConfig,
+  VolumeRenderingConfig,
+  Point3D,
+  MeasurementResult,
+  SeismicData,
+} from '../../types';
+import {
+  SliceType,
+  ViewerDisplaySettings,
+  clamp01 as clampUnitInterval,
+  clampSliceIndex,
+  clearViewerDisplaySettings,
+  createDefaultDisplaySettings,
+  normalizeValueRange,
+} from '../../utils/viewerSettings';
 
-interface ViewerState {
-  slices: {
-    inline: SliceConfig;
-    crossline: SliceConfig;
-    depth: SliceConfig;
-  };
-  volumeRendering: VolumeRenderingConfig;
+interface ViewerState extends ViewerDisplaySettings {
+  hydratedSeismicId: number | null;
   tool: 'select' | 'pan' | 'rotate' | 'measure' | 'annotate';
   measurementType: 'distance' | 'area' | 'volume';
   measurementPoints: Point3D[];
   lastMeasurement: MeasurementResult | null;
-  background: 'dark' | 'light';
-  showAxes: boolean;
-  showGrid: boolean;
-  zoom: number;
-  rotation: [number, number, number];
 }
 
+const defaultDisplaySettings = createDefaultDisplaySettings();
+
 const initialState: ViewerState = {
-  slices: {
-    inline: {
-      type: 'inline',
-      index: 0,
-      visible: false,
-      opacity: 1.0,
-      colormap: 'seismic',
-      minValue: null,
-      maxValue: null,
-    },
-    crossline: {
-      type: 'crossline',
-      index: 0,
-      visible: false,
-      opacity: 1.0,
-      colormap: 'seismic',
-      minValue: null,
-      maxValue: null,
-    },
-    depth: {
-      type: 'depth',
-      index: 0,
-      visible: false,
-      opacity: 1.0,
-      colormap: 'seismic',
-      minValue: null,
-      maxValue: null,
-    },
-  },
-  volumeRendering: {
-    enabled: false,
-    quality: 1,
-    sampleRate: 0.5,
-    opacity: 0.5,
-  },
+  ...defaultDisplaySettings,
+  hydratedSeismicId: null,
   tool: 'rotate',
   measurementType: 'distance',
   measurementPoints: [],
   lastMeasurement: null,
-  background: 'dark',
-  showAxes: true,
-  showGrid: true,
-  zoom: 1,
-  rotation: [0, 0, 0],
 };
 
 const viewerSlice = createSlice({
   name: 'viewer',
   initialState,
   reducers: {
+    hydrateViewerSettings: (
+      state,
+      action: PayloadAction<{ seismicId: number; settings: ViewerDisplaySettings }>
+    ) => {
+      const { seismicId, settings } = action.payload;
+      Object.assign(state, settings);
+      state.hydratedSeismicId = seismicId;
+    },
+    resetViewerSettings: (state, action: PayloadAction<SeismicData>) => {
+      const seismicData = action.payload;
+      Object.assign(state, createDefaultDisplaySettings());
+      state.hydratedSeismicId = seismicData.id;
+      state.tool = 'rotate';
+      state.measurementType = 'distance';
+      state.measurementPoints = [];
+      state.lastMeasurement = null;
+      clearViewerDisplaySettings(seismicData.id);
+    },
     setSliceVisible: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; visible: boolean }>
+      action: PayloadAction<{ sliceType: SliceType; visible: boolean }>
     ) => {
       state.slices[action.payload.sliceType].visible = action.payload.visible;
     },
     setSliceIndex: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; index: number }>
+      action: PayloadAction<{
+        sliceType: SliceType;
+        index: number;
+        seismicData?: SeismicData | null;
+      }>
     ) => {
-      state.slices[action.payload.sliceType].index = action.payload.index;
+      const { sliceType, index, seismicData } = action.payload;
+      state.slices[sliceType].index = clampSliceIndex(index, seismicData, sliceType);
     },
     setSliceOpacity: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; opacity: number }>
+      action: PayloadAction<{ sliceType: SliceType; opacity: number }>
     ) => {
-      state.slices[action.payload.sliceType].opacity = action.payload.opacity;
+      state.slices[action.payload.sliceType].opacity = clampUnitInterval(
+        action.payload.opacity,
+        state.slices[action.payload.sliceType].opacity
+      );
     },
     setSliceColormap: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; colormap: string }>
+      action: PayloadAction<{ sliceType: SliceType; colormap: string }>
     ) => {
-      state.slices[action.payload.sliceType].colormap = action.payload.colormap;
+      const colormaps = ['seismic', 'gray', 'rainbow'];
+      if (colormaps.includes(action.payload.colormap)) {
+        state.slices[action.payload.sliceType].colormap = action.payload.colormap;
+      }
     },
     setSliceValueRange: (
       state,
       action: PayloadAction<{
-        sliceType: 'inline' | 'crossline' | 'depth';
+        sliceType: SliceType;
         minValue: number | null;
         maxValue: number | null;
+        seismicData?: SeismicData | null;
       }>
     ) => {
-      state.slices[action.payload.sliceType].minValue = action.payload.minValue;
-      state.slices[action.payload.sliceType].maxValue = action.payload.maxValue;
+      const { sliceType, minValue, maxValue, seismicData } = action.payload;
+      const normalizedRange = normalizeValueRange(minValue, maxValue, seismicData);
+      state.slices[sliceType].minValue = normalizedRange.minValue;
+      state.slices[sliceType].maxValue = normalizedRange.maxValue;
     },
     setVolumeRenderingEnabled: (state, action: PayloadAction<boolean>) => {
       state.volumeRendering.enabled = action.payload;
     },
     setVolumeRenderingQuality: (state, action: PayloadAction<number>) => {
-      state.volumeRendering.quality = action.payload;
+      state.volumeRendering.quality = clampUnitInterval(action.payload, state.volumeRendering.quality);
+    },
+    setVolumeRenderingSampleRate: (state, action: PayloadAction<number>) => {
+      state.volumeRendering.sampleRate = clampUnitInterval(action.payload, state.volumeRendering.sampleRate);
     },
     setVolumeRenderingOpacity: (state, action: PayloadAction<number>) => {
-      state.volumeRendering.opacity = action.payload;
+      state.volumeRendering.opacity = clampUnitInterval(action.payload, state.volumeRendering.opacity);
     },
     setTool: (state, action: PayloadAction<ViewerState['tool']>) => {
       state.tool = action.payload;
@@ -132,7 +136,7 @@ const viewerSlice = createSlice({
       state.lastMeasurement = action.payload;
     },
     setBackground: (state, action: PayloadAction<'dark' | 'light'>) => {
-      state.background = action.payload;
+      state.background = action.payload === 'light' ? 'light' : 'dark';
     },
     setShowAxes: (state, action: PayloadAction<boolean>) => {
       state.showAxes = action.payload;
@@ -146,11 +150,12 @@ const viewerSlice = createSlice({
     setRotation: (state, action: PayloadAction<[number, number, number]>) => {
       state.rotation = action.payload;
     },
-    resetViewer: () => initialState,
   },
 });
 
 export const {
+  hydrateViewerSettings,
+  resetViewerSettings,
   setSliceVisible,
   setSliceIndex,
   setSliceOpacity,
@@ -158,6 +163,7 @@ export const {
   setSliceValueRange,
   setVolumeRenderingEnabled,
   setVolumeRenderingQuality,
+  setVolumeRenderingSampleRate,
   setVolumeRenderingOpacity,
   setTool,
   setMeasurementType,
@@ -169,6 +175,7 @@ export const {
   setShowGrid,
   setZoom,
   setRotation,
-  resetViewer,
 } = viewerSlice.actions;
+
+export type { SliceConfig, VolumeRenderingConfig };
 export default viewerSlice.reducer;

@@ -11,16 +11,20 @@ import {
   HomeOutlined,
 } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
-import { setTool, setMeasurementType, resetViewer, clearMeasurementPoints } from '../store/slices/viewerSlice';
+import { setTool, setMeasurementType, resetViewerSettings, clearMeasurementPoints } from '../store/slices/viewerSlice';
 import { RootState, AppDispatch } from '../store';
 
 const Toolbar: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const currentTool = useSelector((state: RootState) => state.viewer.tool);
   const measurementType = useSelector((state: RootState) => state.viewer.measurementType);
+  const currentSeismic = useSelector((state: RootState) => state.seismic.currentSeismic);
 
   const handleReset = () => {
-    dispatch(resetViewer());
+    if (currentSeismic) {
+      dispatch(resetViewerSettings(currentSeismic));
+      dispatch(clearMeasurementPoints());
+    }
   };
 
   const handleClearMeasurements = () => {

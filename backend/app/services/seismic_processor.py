@@ -112,13 +112,14 @@ class SeismicDataProcessor:
 
         with segyio.open(file_path, "r") as f:
             f.mmap()
-            inlines = sorted(set(f.attributes(segyio.TraceField.INLINE_3D)[:]))
+            inline_numbers = sorted(set(f.attributes(segyio.TraceField.INLINE_3D)[:]))
 
-            if inline_index not in inlines:
-                nearest = inlines[min(range(len(inlines)), key=lambda i: abs(inlines[i] - inline_index))]
-                inline_index = nearest
+            if not inline_numbers:
+                raise ValueError("Inline slice is not available")
+            if inline_index < 0 or inline_index >= len(inline_numbers):
+                raise IndexError("Inline slice index is out of range")
 
-            slice_data = f.iline[inline_index]
+            slice_data = f.iline[inline_numbers[inline_index]]
             return np.array(slice_data)
 
     def get_crossline_slice(self, file_path: str, crossline_index: int) -> np.ndarray:
@@ -127,13 +128,14 @@ class SeismicDataProcessor:
 
         with segyio.open(file_path, "r") as f:
             f.mmap()
-            crosslines = sorted(set(f.attributes(segyio.TraceField.CROSSLINE_3D)[:]))
+            crossline_numbers = sorted(set(f.attributes(segyio.TraceField.CROSSLINE_3D)[:]))
 
-            if crossline_index not in crosslines:
-                nearest = crosslines[min(range(len(crosslines)), key=lambda i: abs(crosslines[i] - crossline_index))]
-                crossline_index = nearest
+            if not crossline_numbers:
+                raise ValueError("Crossline slice is not available")
+            if crossline_index < 0 or crossline_index >= len(crossline_numbers):
+                raise IndexError("Crossline slice index is out of range")
 
-            slice_data = f.xline[crossline_index]
+            slice_data = f.xline[crossline_numbers[crossline_index]]
             return np.array(slice_data)
 
     def get_depth_slice(self, file_path: str, depth_index: int) -> np.ndarray:
@@ -142,6 +144,8 @@ class SeismicDataProcessor:
 
         with segyio.open(file_path, "r") as f:
             f.mmap()
+            if depth_index < 0 or depth_index >= f.samples.size:
+                raise IndexError("Depth slice index is out of range")
             slice_data = f.depth_slice[depth_index]
             return np.array(slice_data)
 
@@ -187,6 +191,13 @@ class SeismicDataProcessor:
             min_val = np.percentile(slice_data, 5)
         if max_val is None:
             max_val = np.percentile(slice_data, 95)
+        if min_val > max_val:
+            min_val, max_val = max_val, min_val
+        if np.isclose(max_val, min_val):
+            min_val = np.percentile(slice_data, 5)
+            max_val = np.percentile(slice_data, 95)
+        if np.isclose(max_val, min_val):
+            max_val = min_val + 1.0
 
         normalized = np.clip((slice_data - min_val) / (max_val - min_val), 0, 1)
 

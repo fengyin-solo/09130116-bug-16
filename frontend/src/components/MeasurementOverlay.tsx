@@ -8,8 +8,6 @@ const MeasurementOverlay: React.FC = () => {
   const lastMeasurement = useSelector((state: RootState) => state.viewer.lastMeasurement);
   const tool = useSelector((state: RootState) => state.viewer.tool);
 
-  if (tool !== 'measure') return null;
-
   const pointsGeometry = React.useMemo(() => {
     const positions = new Float32Array(measurementPoints.length * 3);
     measurementPoints.forEach((p, i) => {
@@ -35,6 +33,8 @@ const MeasurementOverlay: React.FC = () => {
     return geometry;
   }, [measurementPoints]);
 
+  if (tool !== 'measure') return null;
+
   return (
     <group>
       {measurementPoints.map((point, index) => (
@@ -43,6 +43,12 @@ const MeasurementOverlay: React.FC = () => {
           <meshBasicMaterial color="#ff4d4f" />
         </mesh>
       ))}
+
+      {pointsGeometry && (
+        <points geometry={pointsGeometry}>
+          <pointsMaterial color="#ff4d4f" size={3} sizeAttenuation />
+        </points>
+      )}
 
       {lineGeometry && (
         <lineSegments geometry={lineGeometry}>
