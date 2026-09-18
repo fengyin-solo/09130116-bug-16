@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { SliceConfig, VolumeRenderingConfig, Point3D, MeasurementResult } from '../../types';
+import { buildDefaultPreferences, SliceType } from '../../utils/viewerSettings';
 
 interface ViewerState {
   slices: {
@@ -19,49 +20,22 @@ interface ViewerState {
   rotation: [number, number, number];
 }
 
+const defaults = buildDefaultPreferences();
+
 const initialState: ViewerState = {
   slices: {
-    inline: {
-      type: 'inline',
-      index: 0,
-      visible: false,
-      opacity: 1.0,
-      colormap: 'seismic',
-      minValue: null,
-      maxValue: null,
-    },
-    crossline: {
-      type: 'crossline',
-      index: 0,
-      visible: false,
-      opacity: 1.0,
-      colormap: 'seismic',
-      minValue: null,
-      maxValue: null,
-    },
-    depth: {
-      type: 'depth',
-      index: 0,
-      visible: false,
-      opacity: 1.0,
-      colormap: 'seismic',
-      minValue: null,
-      maxValue: null,
-    },
+    inline: { type: 'inline', ...defaults.slices.inline },
+    crossline: { type: 'crossline', ...defaults.slices.crossline },
+    depth: { type: 'depth', ...defaults.slices.depth },
   },
-  volumeRendering: {
-    enabled: false,
-    quality: 1,
-    sampleRate: 0.5,
-    opacity: 0.5,
-  },
+  volumeRendering: { ...defaults.volumeRendering },
   tool: 'rotate',
   measurementType: 'distance',
   measurementPoints: [],
   lastMeasurement: null,
-  background: 'dark',
-  showAxes: true,
-  showGrid: true,
+  background: defaults.background,
+  showAxes: defaults.showAxes,
+  showGrid: defaults.showGrid,
   zoom: 1,
   rotation: [0, 0, 0],
 };
@@ -70,34 +44,57 @@ const viewerSlice = createSlice({
   name: 'viewer',
   initialState,
   reducers: {
+    /**
+     * 用已经过 normalizePreferences 校验的显示偏好整体覆盖当前配置
+     * （页面加载 / 切换数据时使用）。工具、测量点、相机等会话状态不动。
+     */
+    hydrateViewer: (
+      state,
+      action: PayloadAction<{
+        slices: Record<SliceType, Omit<SliceConfig, 'type'>>;
+        volumeRendering: VolumeRenderingConfig;
+        background: 'dark' | 'light';
+        showAxes: boolean;
+        showGrid: boolean;
+      }>
+    ) => {
+      const { slices, volumeRendering, background, showAxes, showGrid } = action.payload;
+      (['inline', 'crossline', 'depth'] as SliceType[]).forEach((sliceType) => {
+        state.slices[sliceType] = { type: sliceType, ...slices[sliceType] };
+      });
+      state.volumeRendering = volumeRendering;
+      state.background = background;
+      state.showAxes = showAxes;
+      state.showGrid = showGrid;
+    },
     setSliceVisible: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; visible: boolean }>
+      action: PayloadAction<{ sliceType: SliceType; visible: boolean }>
     ) => {
       state.slices[action.payload.sliceType].visible = action.payload.visible;
     },
     setSliceIndex: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; index: number }>
+      action: PayloadAction<{ sliceType: SliceType; index: number }>
     ) => {
       state.slices[action.payload.sliceType].index = action.payload.index;
     },
     setSliceOpacity: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; opacity: number }>
+      action: PayloadAction<{ sliceType: SliceType; opacity: number }>
     ) => {
       state.slices[action.payload.sliceType].opacity = action.payload.opacity;
     },
     setSliceColormap: (
       state,
-      action: PayloadAction<{ sliceType: 'inline' | 'crossline' | 'depth'; colormap: string }>
+      action: PayloadAction<{ sliceType: SliceType; colormap: string }>
     ) => {
       state.slices[action.payload.sliceType].colormap = action.payload.colormap;
     },
     setSliceValueRange: (
       state,
       action: PayloadAction<{
-        sliceType: 'inline' | 'crossline' | 'depth';
+        sliceType: SliceType;
         minValue: number | null;
         maxValue: number | null;
       }>
@@ -151,6 +148,7 @@ const viewerSlice = createSlice({
 });
 
 export const {
+  hydrateViewer,
   setSliceVisible,
   setSliceIndex,
   setSliceOpacity,

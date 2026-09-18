@@ -4,12 +4,13 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Button, Spin, message, Space, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { RootState, AppDispatch } from '../store';
-import { fetchSeismicData, setCurrentSeismic } from '../store/slices/seismicSlice';
+import { setCurrentSeismic } from '../store/slices/seismicSlice';
 import { SeismicData } from '../types';
 import SeismicCanvas from '../components/SeismicCanvas';
 import ControlPanel from '../components/ControlPanel';
 import Toolbar from '../components/Toolbar';
 import StatusBar from '../components/StatusBar';
+import ViewerPreferencesBridge from '../components/ViewerPreferencesBridge';
 
 const { Title } = Typography;
 
@@ -78,6 +79,8 @@ const Viewer: React.FC = () => {
 
   return (
     <div ref={containerRef} className="seismic-canvas-container">
+      <ViewerPreferencesBridge seismicData={currentData} />
+
       <SeismicCanvas seismicData={currentData} containerRef={containerRef} />
 
       <Toolbar />

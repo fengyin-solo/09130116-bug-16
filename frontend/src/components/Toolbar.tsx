@@ -3,7 +3,6 @@ import { Button, Space, Tooltip, Radio } from 'antd';
 import {
   RotateLeftOutlined,
   ZoomInOutlined,
-  ZoomOutOutlined,
   LineChartOutlined,
   EditOutlined,
   SelectOutlined,

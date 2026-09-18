@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Collapse, Switch, Slider, Select, Space, Typography, Tag } from 'antd';
+import { Card, Collapse, Switch, Slider, Select, Space, Typography, Tag, Button } from 'antd';
 import { EyeOutlined, EyeInvisibleOutlined, BuildOutlined, SettingOutlined, AreaChartOutlined } from '@ant-design/icons';
 import { useSelector, useDispatch } from 'react-redux';
 import {
@@ -7,6 +7,7 @@ import {
   setSliceIndex,
   setSliceOpacity,
   setSliceColormap,
+  setSliceValueRange,
   setVolumeRenderingEnabled,
   setVolumeRenderingOpacity,
   setBackground,
@@ -15,6 +16,17 @@ import {
 } from '../store/slices/viewerSlice';
 import { RootState, AppDispatch } from '../store';
 import { SeismicData } from '../types';
+import {
+  SliceType,
+  COLORMAP_LABELS,
+  getSliceCount,
+  clampSliceIndex,
+  clampUnitInterval,
+  normalizeColormap,
+  normalizeSliceConfig,
+  normalizeVolumeConfig,
+  getEffectiveValueRange,
+} from '../utils/viewerSettings';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -23,11 +35,7 @@ interface ControlPanelProps {
   seismicData: SeismicData;
 }
 
-const colormapOptions = [
-  { value: 'seismic', label: '地震波色标' },
-  { value: 'gray', label: '灰度' },
-  { value: 'rainbow', label: '彩虹' },
-];
+const colormapOptions = Object.entries(COLORMAP_LABELS).map(([value, label]) => ({ value, label }));
 
 const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
   const dispatch = useDispatch<AppDispatch>();
@@ -39,16 +47,26 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
 
   const [activeKeys, setActiveKeys] = useState<string[]>(['slices', 'volume', 'display']);
 
-  const renderSliceControl = (sliceType: 'inline' | 'crossline' | 'depth') => {
-    const config = slices[sliceType];
-    
-    const maxMap = {
-      inline: seismicData.num_inlines || 100,
-      crossline: seismicData.num_crosslines || 100,
-      depth: seismicData.num_depths || 100,
-    };
+  // 面板展示的体绘制参数同样经过统一判定，保证与画布、状态栏一致
+  const effectiveVolume = normalizeVolumeConfig(volumeRendering);
 
-    const labelsMap = {
+  const renderSliceControl = (sliceType: SliceType) => {
+    // 面板显示的就是标准化后的配置，画布与状态栏取参走的是同一个函数
+    const config = normalizeSliceConfig(slices[sliceType], seismicData, sliceType);
+    const count = getSliceCount(seismicData, sliceType);
+    const effectiveRange = getEffectiveValueRange(config, seismicData);
+
+    const globalMin = seismicData.min_value;
+    const globalMax = seismicData.max_value;
+    const hasGlobalBounds =
+      typeof globalMin === 'number' &&
+      typeof globalMax === 'number' &&
+      Number.isFinite(globalMin) &&
+      Number.isFinite(globalMax);
+    const rangeDisabled = !hasGlobalBounds || globalMax! - globalMin! <= 0;
+    const isDefaultRange = config.minValue === null && config.maxValue === null;
+
+    const labelsMap: Record<SliceType, string> = {
       inline: 'Inline 切片',
       crossline: 'Crossline 切片',
       depth: '深度切片',
@@ -56,6 +74,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
 
     return (
       <Card
+        key={sliceType}
         size="small"
         style={{ marginBottom: 8 }}
         extra={
@@ -74,13 +93,22 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
             <Text type="secondary">切片索引</Text>
-            <Tag color="blue">{config.index}</Tag>
+            <Tag color="blue">
+              {config.index} / {Math.max(0, count - 1)}
+            </Tag>
           </div>
           <Slider
             min={0}
-            max={maxMap[sliceType] - 1}
+            max={Math.max(0, count - 1)}
             value={config.index}
-            onChange={(value) => dispatch(setSliceIndex({ sliceType, index: value as number }))}
+            onChange={(value) =>
+              dispatch(
+                setSliceIndex({
+                  sliceType,
+                  index: clampSliceIndex(value, count),
+                })
+              )
+            }
             disabled={!config.visible}
           />
         </div>
@@ -95,24 +123,86 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
             max={1}
             step={0.01}
             value={config.opacity}
-            onChange={(value) => dispatch(setSliceOpacity({ sliceType, opacity: value as number }))}
+            onChange={(value) =>
+              dispatch(
+                setSliceOpacity({
+                  sliceType,
+                  opacity: clampUnitInterval(value, 1),
+                })
+              )
+            }
             disabled={!config.visible}
           />
         </div>
 
-        <div>
+        <div style={{ marginBottom: 12 }}>
           <Text type="secondary">色标</Text>
           <Select
             value={config.colormap}
             size="small"
             style={{ width: '100%' }}
-            onChange={(value) => dispatch(setSliceColormap({ sliceType, colormap: value }))}
+            onChange={(value) =>
+              dispatch(
+                setSliceColormap({
+                  sliceType,
+                  colormap: normalizeColormap(value),
+                })
+              )
+            }
             disabled={!config.visible}
           >
-            {colormapOptions.map(opt => (
-              <Select.Option key={opt.value} value={opt.value}>{opt.label}</Select.Option>
+            {colormapOptions.map((opt) => (
+              <Select.Option key={opt.value} value={opt.value}>
+                {opt.label}
+              </Select.Option>
             ))}
           </Select>
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Text type="secondary">取值范围</Text>
+            <Space size={4}>
+              <Tag color={isDefaultRange ? 'default' : 'green'}>
+                {effectiveRange.min.toFixed(2)} ~ {effectiveRange.max.toFixed(2)}
+                {isDefaultRange ? '（默认）' : ''}
+              </Tag>
+              <Button
+                size="small"
+                type="link"
+                disabled={isDefaultRange || !config.visible}
+                onClick={() =>
+                  dispatch(
+                    setSliceValueRange({ sliceType, minValue: null, maxValue: null })
+                  )
+                }
+              >
+                恢复默认
+              </Button>
+            </Space>
+          </div>
+          {hasGlobalBounds ? (
+            <Slider
+              range
+              min={globalMin}
+              max={globalMax}
+              step={(globalMax! - globalMin!) / 1000}
+              value={[
+                config.minValue ?? globalMin!,
+                config.maxValue ?? globalMax!,
+              ]}
+              onChange={(value) => {
+                const [lo, hi] = value as [number, number];
+                dispatch(setSliceValueRange({ sliceType, minValue: lo, maxValue: hi }));
+              }}
+              disabled={!config.visible || rangeDisabled}
+              tooltip={{ formatter: (v) => (v === undefined ? '' : v.toFixed(2)) }}
+            />
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              当前数据缺少全局统计值，取值范围使用服务端自动估计（默认）
+            </Text>
+          )}
         </div>
       </Card>
     );
@@ -162,7 +252,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text>启用体绘制</Text>
                   <Switch
-                    checked={volumeRendering.enabled}
+                    checked={effectiveVolume.enabled}
                     onChange={(checked) => dispatch(setVolumeRenderingEnabled(checked))}
                   />
                 </div>
@@ -171,15 +261,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ seismicData }) => {
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <Text type="secondary">透明度</Text>
-                  <Tag>{(volumeRendering.opacity * 100).toFixed(0)}%</Tag>
+                  <Tag>{(effectiveVolume.opacity * 100).toFixed(0)}%</Tag>
                 </div>
                 <Slider
                   min={0}
                   max={1}
                   step={0.01}
-                  value={volumeRendering.opacity}
-                  onChange={(value) => dispatch(setVolumeRenderingOpacity(value as number))}
-                  disabled={!volumeRendering.enabled}
+                  value={effectiveVolume.opacity}
+                  onChange={(value) =>
+                    dispatch(
+                      setVolumeRenderingOpacity(clampUnitInterval(value, 0.5))
+                    )
+                  }
+                  disabled={!effectiveVolume.enabled}
                 />
               </div>
             </Card>

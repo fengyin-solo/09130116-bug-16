@@ -54,6 +54,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
   padding: 8px 16px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(8px);

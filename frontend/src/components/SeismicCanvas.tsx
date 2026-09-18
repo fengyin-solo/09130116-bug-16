@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import { useSelector, useDispatch } from 'react-redux';
@@ -55,7 +55,6 @@ const Raycaster: React.FC<{
 
   const width = (seismicData.num_crosslines || 100) * 10;
   const height = (seismicData.num_depths || 100) * 10;
-  const depth = (seismicData.num_inlines || 100) * 10;
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {

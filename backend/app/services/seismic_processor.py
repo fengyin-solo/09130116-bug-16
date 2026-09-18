@@ -142,6 +142,11 @@ class SeismicDataProcessor:
 
         with segyio.open(file_path, "r") as f:
             f.mmap()
+            # 深度轴是按采样位置索引的，越界必须夹取到 [0, 样本数-1]，
+            # 与前端 clampSliceIndex 的判定保持一致，避免拖到上限外直接报错
+            num_samples = int(f.bin[segyio.BinField.Samples])
+            if num_samples > 0:
+                depth_index = min(max(int(depth_index), 0), num_samples - 1)
             slice_data = f.depth_slice[depth_index]
             return np.array(slice_data)
 
@@ -188,7 +193,18 @@ class SeismicDataProcessor:
         if max_val is None:
             max_val = np.percentile(slice_data, 95)
 
-        normalized = np.clip((slice_data - min_val) / (max_val - min_val), 0, 1)
+        # 与前端 getEffectiveValueRange 同一套规则：保证 min <= max，
+        # 范围退化（相等/非法）时全部映射为 0，避免除零产生空白/坏图
+        if not np.isfinite(min_val):
+            min_val = 0.0
+        if not np.isfinite(max_val):
+            max_val = min_val if min_val != 0 else 1.0
+        if min_val > max_val:
+            min_val, max_val = max_val, min_val
+        if max_val - min_val <= 0:
+            normalized = np.zeros_like(slice_data, dtype=np.float64)
+        else:
+            normalized = np.clip((slice_data - min_val) / (max_val - min_val), 0, 1)
 
         colormaps = {
             "seismic": self._seismic_colormap,

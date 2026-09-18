@@ -30,7 +30,6 @@ import {
   createProject,
   updateProject,
   deleteProject,
-  setCurrentProject,
 } from '../store/slices/projectSlice';
 import { fetchSeismicData, uploadSeismicData, setCurrentSeismic } from '../store/slices/seismicSlice';
 import { RootState, AppDispatch } from '../store';

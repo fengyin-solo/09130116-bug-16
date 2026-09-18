@@ -1,5 +1,4 @@
-import React, { useRef, useMemo } from 'react';
-import { useFrame } from '@react-three/fiber';
+import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { SeismicData, VolumeRenderingConfig } from '../types';
 
@@ -157,6 +156,10 @@ const VolumeRenderer: React.FC<VolumeRendererProps> = ({ seismicData, config }) 
     }
   `;
 
+  // uniforms 对象只创建一次：shaderMaterial 在首次挂载时绑定引用后，
+  // 后续替换 uniforms 属性不会同步到 GPU。所有参数变化只更新各 uniform
+  // 的 .value（见下面的 useEffect），从而保证任意 opacity 都立即生效，
+  // 关闭再打开也不会沿用上一材质的中间值。
   const uniforms = useMemo(
     () => ({
       volumeTexture: { value: volumeTexture },
@@ -164,15 +167,21 @@ const VolumeRenderer: React.FC<VolumeRendererProps> = ({ seismicData, config }) 
       sampleRate: { value: config.sampleRate },
       volumeSize: { value: new THREE.Vector3(width, height, depth) },
     }),
-    [volumeTexture, config.opacity, config.sampleRate, width, height, depth]
+    // 仅依赖纹理本身；config 的变化走下面的值同步
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [volumeTexture]
   );
 
-  useFrame(() => {
+  useEffect(() => {
     if (materialRef.current) {
       materialRef.current.uniforms.opacity.value = config.opacity;
       materialRef.current.uniforms.sampleRate.value = config.sampleRate;
+      materialRef.current.uniforms.volumeSize.value.set(width, height, depth);
     }
-  });
+    uniforms.opacity.value = config.opacity;
+    uniforms.sampleRate.value = config.sampleRate;
+    uniforms.volumeSize.value.set(width, height, depth);
+  }, [uniforms, config.opacity, config.sampleRate, width, height, depth]);
 
   return (
     <mesh ref={meshRef} position={[width / 2, height / 2, depth / 2]}>

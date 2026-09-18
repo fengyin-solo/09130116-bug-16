@@ -8,20 +8,6 @@ const MeasurementOverlay: React.FC = () => {
   const lastMeasurement = useSelector((state: RootState) => state.viewer.lastMeasurement);
   const tool = useSelector((state: RootState) => state.viewer.tool);
 
-  if (tool !== 'measure') return null;
-
-  const pointsGeometry = React.useMemo(() => {
-    const positions = new Float32Array(measurementPoints.length * 3);
-    measurementPoints.forEach((p, i) => {
-      positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
-      positions[i * 3 + 2] = p.z;
-    });
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    return geometry;
-  }, [measurementPoints]);
-
   const lineGeometry = React.useMemo(() => {
     if (measurementPoints.length < 2) return null;
     const positions = new Float32Array(measurementPoints.length * 3);
@@ -34,6 +20,8 @@ const MeasurementOverlay: React.FC = () => {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     return geometry;
   }, [measurementPoints]);
+
+  if (tool !== 'measure') return null;
 
   return (
     <group>

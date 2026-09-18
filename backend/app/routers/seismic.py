@@ -193,6 +193,16 @@ async def get_slice(
         if max_value is None:
             max_value = seismic.max_value
 
+        # 与前端 normalizeValueRange / getEffectiveValueRange 同一套规则：
+        # 保证 min <= max，避免拖窄到上下限重合时出现除零/空白
+        if min_value is not None and max_value is not None:
+            if not np.isfinite(min_value):
+                min_value = seismic.min_value
+            if not np.isfinite(max_value):
+                max_value = seismic.max_value
+            if min_value is not None and max_value is not None and min_value > max_value:
+                min_value, max_value = max_value, min_value
+
         image_buffer = seismic_processor.generate_thumbnail(
             slice_data, colormap, min_value, max_value
         )
